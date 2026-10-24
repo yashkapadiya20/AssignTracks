@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Award, CalendarClock, Clock, MessageSquare, Undo2 } from 'lucide-react';
+import { Award, CalendarClock, Clock, MessageSquare, Paperclip, Undo2 } from 'lucide-react';
 import Modal from './Modal.jsx';
+import FileChip from './FileChip.jsx';
 import { StatusBadge, Progress } from './ui.jsx';
 import { api } from '../lib/api.js';
 import { defaultDue, dueLabel, formatDateTime, percent, timeLeft, toLocalInput, urgency } from '../lib/format.js';
@@ -100,15 +101,39 @@ export function AssignmentFormModal({ courses, courseId, assignment, onClose, on
   );
 }
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
 // Student: view an assignment, turn in / update / unsubmit work, see grade and feedback.
 export function AssignmentDetailModal({ assignment: a, onClose, onChanged }) {
   const toast = useToast();
   const [content, setContent] = useState(a.submission?.content ?? '');
+  const [file, setFile] = useState(null);
+  const [removeOld, setRemoveOld] = useState(false);
   const [editing, setEditing] = useState(!a.submission);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const graded = a.status === 'graded';
   const left = timeLeft(a.due_date);
+  const oldFile = a.submission?.file_name && !removeOld && !file ? a.submission : null;
+  const canTurnIn = content.trim() || file || oldFile;
+
+  function pickFile(e) {
+    const picked = e.target.files[0];
+    e.target.value = ''; // lets the same file be picked again after removing it
+    if (!picked) return;
+    if (!/\.(pdf|docx?)$/i.test(picked.name)) return setError('Only PDF, DOC and DOCX files are allowed');
+    if (picked.size > MAX_FILE_SIZE) return setError('File is too large (max 10 MB)');
+    setError('');
+    setFile(picked);
+  }
+
+  function cancelEdit() {
+    setContent(a.submission?.content ?? '');
+    setFile(null);
+    setRemoveOld(false);
+    setError('');
+    setEditing(false);
+  }
 
   async function run(action, message) {
     setBusy(true);
@@ -127,7 +152,13 @@ export function AssignmentDetailModal({ assignment: a, onClose, onChanged }) {
   const turnIn = (e) => {
     e.preventDefault();
     run(
-      () => api(`/assignments/${a.id}/submissions`, { method: 'POST', body: { content } }),
+      () => {
+        const body = new FormData();
+        body.append('content', content);
+        if (file) body.append('file', file);
+        if (removeOld) body.append('remove_file', 'true');
+        return api(`/assignments/${a.id}/submissions`, { method: 'POST', body });
+      },
       a.submission ? 'Submission updated' : 'Assignment turned in'
     );
   };
@@ -193,25 +224,43 @@ export function AssignmentDetailModal({ assignment: a, onClose, onChanged }) {
                 autoFocus
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="Type your answer, or paste a link to your document / GitHub repo / Drive file"
-                required
+                placeholder="Type your answer or a note for your teacher (optional if you attach a file)"
               />
+              {file ? (
+                <FileChip name={file.name} size={file.size} onRemove={() => setFile(null)} />
+              ) : oldFile ? (
+                <FileChip
+                  name={oldFile.file_name}
+                  size={oldFile.file_size}
+                  submissionId={oldFile.id}
+                  onRemove={() => setRemoveOld(true)}
+                />
+              ) : (
+                <label className="btn btn-ghost file-pick">
+                  <Paperclip size={16} /> Attach file
+                  <input type="file" accept=".pdf,.doc,.docx" onChange={pickFile} hidden />
+                </label>
+              )}
+              <p className="hint">PDF, DOC or DOCX, up to 10 MB.</p>
               {a.status === 'missing' && <p className="hint warn">This is past the deadline and will be marked late.</p>}
               {error && <p className="form-error">{error}</p>}
               <div className="actions-end">
                 {a.submission && (
-                  <button type="button" className="btn btn-ghost" onClick={() => setEditing(false)}>
+                  <button type="button" className="btn btn-ghost" onClick={cancelEdit}>
                     Cancel
                   </button>
                 )}
-                <button className="btn btn-primary" disabled={busy || !content.trim()}>
+                <button className="btn btn-primary" disabled={busy || !canTurnIn}>
                   {a.submission ? 'Update submission' : 'Turn in'}
                 </button>
               </div>
             </form>
           ) : (
             <>
-              <pre className="submission-text">{a.submission?.content}</pre>
+              {a.submission?.content && <pre className="submission-text">{a.submission.content}</pre>}
+              {a.submission?.file_name && (
+                <FileChip name={a.submission.file_name} size={a.submission.file_size} submissionId={a.submission.id} />
+              )}
               {error && <p className="form-error">{error}</p>}
               {!graded && (
                 <div className="actions-end">

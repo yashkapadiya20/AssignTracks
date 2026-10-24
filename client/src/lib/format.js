@@ -114,3 +114,9 @@ export const matches = (query, ...fields) => {
   const q = query.trim().toLowerCase();
   return !q || fields.some((f) => (f || '').toLowerCase().includes(q));
 };
+
+export function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}

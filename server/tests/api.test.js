@@ -1,3 +1,11 @@
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+// Keep test uploads out of server/uploads (must be set before the app is loaded).
+const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-uploads-'));
+process.env.UPLOAD_DIR = uploadDir;
+
 const request = require('supertest');
 const { createPool } = require('../src/db');
 const { createApp } = require('../src/app');
@@ -10,7 +18,10 @@ beforeAll(async () => {
   app = createApp(pool);
 });
 
-afterAll(() => pool.end());
+afterAll(async () => {
+  await pool.end();
+  fs.rmSync(uploadDir, { recursive: true, force: true });
+});
 
 async function register(name, role) {
   const res = await request(app)
@@ -216,5 +227,84 @@ describe('Assignment Tracker API', () => {
     const del = await request(app).delete(`/api/assignments/${pastAssignmentId}`).set(auth(teacher));
     expect(del.status).toBe(204);
     expect((await request(app).get(`/api/assignments/${pastAssignmentId}`).set(auth(teacher))).status).toBe(404);
+  });
+});
+
+describe('File submissions', () => {
+  let teacher, student, outsider, assignmentId, submissionId;
+  const url = () => `/api/assignments/${assignmentId}/submissions`;
+  const pdf = Buffer.from('%PDF-1.4 test file');
+  const storedFiles = () => fs.readdirSync(uploadDir);
+
+  beforeAll(async () => {
+    teacher = await register('fileteacher', 'teacher');
+    student = await register('filestudent', 'student');
+    outsider = await register('fileoutsider', 'student');
+    const course = (await request(app).post('/api/courses').set(auth(teacher)).send({ name: 'Files 101' })).body;
+    await request(app).post('/api/courses/join').set(auth(student)).send({ code: course.code });
+    assignmentId = (
+      await request(app)
+        .post('/api/assignments')
+        .set(auth(teacher))
+        .send({ course_id: course.id, title: 'Report', due_date: inDays(2) })
+    ).body.id;
+  });
+
+  test('rejects other file types and empty submissions without keeping files', async () => {
+    const exe = await request(app).post(url()).set(auth(student)).attach('file', Buffer.from('MZ'), 'virus.exe');
+    expect(exe.status).toBe(400);
+    expect((await request(app).post(url()).set(auth(student)).field('content', '  ')).status).toBe(400);
+    expect(storedFiles()).toHaveLength(0);
+  });
+
+  test('student turns in a PDF with no text', async () => {
+    const res = await request(app).post(url()).set(auth(student)).attach('file', pdf, 'My Report.pdf');
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ content: '', file_name: 'My Report.pdf', file_size: pdf.length });
+    submissionId = res.body.id;
+    expect(storedFiles()).toHaveLength(1);
+  });
+
+  test('student and teacher can download it; others cannot', async () => {
+    const fileUrl = `/api/submissions/${submissionId}/file`;
+    for (const token of [student, teacher]) {
+      const res = await request(app).get(fileUrl).set(auth(token)).buffer(true).parse((r, cb) => {
+        const chunks = [];
+        r.on('data', (c) => chunks.push(c));
+        r.on('end', () => cb(null, Buffer.concat(chunks)));
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers['content-disposition']).toContain('My Report.pdf');
+      expect(res.body.equals(pdf)).toBe(true);
+    }
+    expect((await request(app).get(fileUrl).set(auth(outsider))).status).toBe(403);
+    expect((await request(app).get(fileUrl)).status).toBe(401);
+  });
+
+  test('editing text keeps the file; a new upload replaces it', async () => {
+    const edit = await request(app).post(url()).set(auth(student)).field('content', 'See attached');
+    expect(edit.body).toMatchObject({ content: 'See attached', file_name: 'My Report.pdf' });
+
+    const replace = await request(app).post(url()).set(auth(student)).attach('file', pdf, 'final.docx');
+    expect(replace.body.file_name).toBe('final.docx');
+    expect(storedFiles()).toEqual([replace.body.file_path]);
+  });
+
+  test('removing the file needs text; unsubmitting deletes the file', async () => {
+    const noText = await request(app).post(url()).set(auth(student)).field('remove_file', 'true');
+    expect(noText.status).toBe(400);
+
+    const removed = await request(app)
+      .post(url())
+      .set(auth(student))
+      .field('content', 'Text only now')
+      .field('remove_file', 'true');
+    expect(removed.body.file_name).toBeNull();
+    expect(storedFiles()).toHaveLength(0);
+
+    await request(app).post(url()).set(auth(student)).attach('file', pdf, 'again.pdf');
+    expect(storedFiles()).toHaveLength(1);
+    expect((await request(app).delete(url()).set(auth(student))).status).toBe(204);
+    expect(storedFiles()).toHaveLength(0);
   });
 });

@@ -1,6 +1,7 @@
 const express = require('express');
 const { requireAuth, requireRole } = require('../auth');
 const { getCourseAccess } = require('../access');
+const { singleFile, removeFile } = require('../uploads');
 
 // Mirrors Google Classroom: assigned -> missing (past due) -> submitted ("turned in") -> graded.
 function submissionStatus(assignment, submission, now = new Date()) {
@@ -135,7 +136,12 @@ module.exports = function assignmentRoutes(pool) {
   router.delete('/:id', requireRole('teacher'), async (req, res) => {
     const assignment = await authorize(req, res);
     if (!assignment) return;
+    const { rows: files } = await pool.query(
+      'SELECT file_path FROM submissions WHERE assignment_id = $1 AND file_path IS NOT NULL',
+      [assignment.id]
+    );
     await pool.query('DELETE FROM submissions WHERE assignment_id = $1', [assignment.id]);
+    files.forEach((f) => removeFile(f.file_path));
     await pool.query('DELETE FROM assignments WHERE id = $1', [assignment.id]);
     res.status(204).end();
   });
@@ -167,29 +173,53 @@ module.exports = function assignmentRoutes(pool) {
   });
 
   // Students turn in or update work (allowed until it has been graded).
-  router.post('/:id/submissions', requireRole('student'), async (req, res) => {
-    const { content } = req.body || {};
-    if (!content || !content.trim()) return res.status(400).json({ error: 'content is required' });
+  // Accepts JSON or multipart form data with an optional PDF/Word "file".
+  router.post('/:id/submissions', requireRole('student'), singleFile, async (req, res) => {
+    const file = req.file;
+    // Drop the uploaded file whenever the request is rejected.
+    const reject = (status, error) => {
+      if (file) removeFile(file.filename);
+      res.status(status).json({ error });
+    };
+    const content = String((req.body || {}).content || '').trim();
+    const removeExisting = String((req.body || {}).remove_file) === 'true';
 
     const assignment = await authorize(req, res);
-    if (!assignment) return;
+    if (!assignment) {
+      if (file) removeFile(file.filename);
+      return;
+    }
 
-    const existing = await pool.query('SELECT * FROM submissions WHERE assignment_id = $1 AND student_id = $2', [
+    const { rows: found } = await pool.query('SELECT * FROM submissions WHERE assignment_id = $1 AND student_id = $2', [
       assignment.id,
       req.user.id,
     ]);
-    if (existing.rows.length) {
-      if (existing.rows[0].marks != null) return res.status(409).json({ error: 'Already graded; cannot resubmit' });
+    const existing = found[0];
+    if (existing && existing.marks != null) return reject(409, 'Already graded; cannot resubmit');
+
+    // A new upload replaces the old file; otherwise keep it unless the student removed it.
+    const keepOld = existing && existing.file_path && !file && !removeExisting;
+    const fileFields = file
+      ? [file.originalname, file.filename, file.size]
+      : keepOld
+        ? [existing.file_name, existing.file_path, existing.file_size]
+        : [null, null, null];
+    if (!content && !fileFields[1]) return reject(400, 'Add some text or attach a file');
+
+    if (existing) {
       const { rows } = await pool.query(
-        'UPDATE submissions SET content = $1, submitted_at = NOW() WHERE id = $2 RETURNING *',
-        [content.trim(), existing.rows[0].id]
+        `UPDATE submissions SET content = $1, file_name = $2, file_path = $3, file_size = $4, submitted_at = NOW()
+          WHERE id = $5 RETURNING *`,
+        [content, ...fileFields, existing.id]
       );
+      if (existing.file_path && !keepOld) removeFile(existing.file_path);
       return res.json(rows[0]);
     }
 
     const { rows } = await pool.query(
-      'INSERT INTO submissions (assignment_id, student_id, content) VALUES ($1, $2, $3) RETURNING *',
-      [assignment.id, req.user.id, content.trim()]
+      `INSERT INTO submissions (assignment_id, student_id, content, file_name, file_path, file_size)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [assignment.id, req.user.id, content, ...fileFields]
     );
     res.status(201).json(rows[0]);
   });
@@ -205,6 +235,7 @@ module.exports = function assignmentRoutes(pool) {
     if (!rows.length) return res.status(404).json({ error: 'Nothing to unsubmit' });
     if (rows[0].marks != null) return res.status(409).json({ error: 'Already graded; cannot unsubmit' });
     await pool.query('DELETE FROM submissions WHERE id = $1', [rows[0].id]);
+    removeFile(rows[0].file_path);
     res.status(204).end();
   });
 

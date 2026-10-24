@@ -1,5 +1,6 @@
 const express = require('express');
 const { requireAuth, requireRole } = require('../auth');
+const { filePath } = require('../uploads');
 
 module.exports = function submissionRoutes(pool) {
   const router = express.Router();
@@ -29,6 +30,28 @@ module.exports = function submissionRoutes(pool) {
       [value, feedback, sub.id]
     );
     res.json(updated.rows[0]);
+  });
+
+  // Download the attached file: only the student who submitted it or the course teacher.
+  router.get('/:id/file', async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT s.student_id, s.file_name, s.file_path, c.teacher_id
+         FROM submissions s
+         JOIN assignments a ON a.id = s.assignment_id
+         JOIN courses c ON c.id = a.course_id
+        WHERE s.id = $1`,
+      [Number(req.params.id)]
+    );
+    const sub = rows[0];
+    if (!sub) return res.status(404).json({ error: 'Submission not found' });
+    if (sub.student_id !== req.user.id && sub.teacher_id !== req.user.id) {
+      return res.status(403).json({ error: 'Not allowed to view this file' });
+    }
+    if (!sub.file_path) return res.status(404).json({ error: 'No file attached' });
+
+    res.download(filePath(sub.file_path), sub.file_name, (err) => {
+      if (err && !res.headersSent) res.status(404).json({ error: 'File is missing on the server' });
+    });
   });
 
   return router;

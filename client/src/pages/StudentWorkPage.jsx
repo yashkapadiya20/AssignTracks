@@ -7,6 +7,7 @@ import { dueLabel, formatDateTime, percent, urgency } from '../lib/format.js';
 import { useToast } from '../toast.jsx';
 import { Avatar, EmptyState, ErrorBox, Progress, Spinner, StatusBadge, Tabs } from '../components/ui.jsx';
 import { ConfirmModal } from '../components/Modal.jsx';
+import FileChip from '../components/FileChip.jsx';
 import { AssignmentFormModal } from '../components/AssignmentModals.jsx';
 
 const FILTERS = {
@@ -240,7 +241,10 @@ function GradePanel({ student: s, assignment: a, onSaved }) {
                 {s.late && ' · late'}
               </span>
             </div>
-            <pre className="submission-text">{s.submission.content}</pre>
+            {s.submission.content && <pre className="submission-text">{s.submission.content}</pre>}
+            {s.submission.file_name && (
+              <FileChip name={s.submission.file_name} size={s.submission.file_size} submissionId={s.submission.id} />
+            )}
           </div>
 
           <form className="form" onSubmit={save}>

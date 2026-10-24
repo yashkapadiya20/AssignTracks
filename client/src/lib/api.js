@@ -3,14 +3,19 @@ const TOKEN_KEY = 'tracker_token';
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (t) => (t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY));
 
-export async function api(path, { method = 'GET', body } = {}) {
-  const headers = { 'Content-Type': 'application/json' };
+function authHeaders() {
   const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// `body` may be FormData (file uploads); the browser then sets the multipart Content-Type itself.
+export async function api(path, { method = 'GET', body } = {}) {
+  const isForm = body instanceof FormData;
+  const headers = { ...authHeaders(), ...(isForm ? {} : { 'Content-Type': 'application/json' }) };
 
   let res;
   try {
-    res = await fetch(`/api${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    res = await fetch(`/api${path}`, { method, headers, body: isForm ? body : body ? JSON.stringify(body) : undefined });
   } catch {
     throw new Error('Cannot reach the server. Is the API running?');
   }
@@ -18,4 +23,17 @@ export async function api(path, { method = 'GET', body } = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
+}
+
+// Downloads a protected file (needs the auth header, so a plain link won't work).
+export async function downloadFile(path, fileName) {
+  const res = await fetch(`/api${path}`, { headers: authHeaders() });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Download failed (${res.status})`);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const link = Object.assign(document.createElement('a'), { href: url, download: fileName });
+  link.click();
+  URL.revokeObjectURL(url);
 }

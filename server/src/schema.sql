@@ -43,3 +43,8 @@ CREATE TABLE IF NOT EXISTS submissions (
   graded_at TIMESTAMPTZ,
   UNIQUE (assignment_id, student_id)
 );
+
+-- Optional uploaded file (PDF / Word) attached to a submission.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS file_name TEXT;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS file_path TEXT;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS file_size INTEGER;
