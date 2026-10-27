@@ -1,21 +1,25 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
-export default function Modal({ title, onClose, children, footer, wide }) {
+export default function Modal({ title, onClose, children, footer, wide, className = '' }) {
+  const backdrop = useRef(null);
+
   useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose();
+    // With stacked modals (e.g. a file preview over an assignment), Escape closes only the top one.
+    const isTop = () => [...document.querySelectorAll('.modal-backdrop')].pop() === backdrop.current;
+    const onKey = (e) => e.key === 'Escape' && isTop() && onClose();
     document.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
+      if (!document.querySelector('.modal-backdrop')) document.body.style.overflow = '';
     };
   }, [onClose]);
 
   return createPortal(
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
+    <div ref={backdrop} className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-head">
           <h2>{title}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close">

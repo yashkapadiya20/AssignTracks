@@ -1,6 +1,22 @@
 import { Copy } from 'lucide-react';
 import { useToast } from '../toast.jsx';
 
+// navigator.clipboard only exists on HTTPS or localhost; on plain HTTP fall back to
+// copying from a temporary textarea.
+async function copyText(text) {
+  if (window.isSecureContext && navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = Object.assign(document.createElement('textarea'), { value: text, readOnly: true });
+  area.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand('copy');
+  area.remove();
+  if (!ok) throw new Error('Copy failed');
+}
+
 export default function CopyCode({ code, compact }) {
   const toast = useToast();
 
@@ -8,10 +24,10 @@ export default function CopyCode({ code, compact }) {
     e.preventDefault();
     e.stopPropagation();
     try {
-      await navigator.clipboard.writeText(code);
+      await copyText(code);
       toast(`Class code ${code} copied`);
     } catch {
-      toast(`Class code: ${code}`);
+      toast(`Could not copy. Class code: ${code}`, 'error');
     }
   }
 

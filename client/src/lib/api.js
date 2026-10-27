@@ -25,14 +25,23 @@ export async function api(path, { method = 'GET', body } = {}) {
   return data;
 }
 
-// Downloads a protected file (needs the auth header, so a plain link won't work).
-export async function downloadFile(path, fileName) {
-  const res = await fetch(`/api${path}`, { headers: authHeaders() });
+// Fetches a protected file as a Blob (needs the auth header, so a plain link won't work).
+export async function fetchFile(path) {
+  let res;
+  try {
+    res = await fetch(`/api${path}`, { headers: authHeaders() });
+  } catch {
+    throw new Error('Cannot reach the server. Is the API running?');
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || `Download failed (${res.status})`);
   }
-  const url = URL.createObjectURL(await res.blob());
+  return res.blob();
+}
+
+export async function downloadFile(path, fileName) {
+  const url = URL.createObjectURL(await fetchFile(path));
   const link = Object.assign(document.createElement('a'), { href: url, download: fileName });
   link.click();
   URL.revokeObjectURL(url);

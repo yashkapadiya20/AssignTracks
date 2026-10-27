@@ -394,6 +394,12 @@ select { cursor: pointer; }
 .file-icon { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; background: var(--red-bg); color: var(--red-fg); }
 .file-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; font-weight: 500; font-size: 0.9rem; line-height: 1.3; }
 .file-pick { align-self: flex-start; }
+.modal-preview { max-width: 960px; height: calc(100vh - 32px); }
+.modal-preview .modal-body { flex: 1; display: flex; flex-direction: column; padding-bottom: 12px; }
+.preview-frame { flex: 1; width: 100%; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; }
+.preview-docx { flex: 1; overflow: auto; border-radius: var(--radius-sm); background: #e9eaee; }
+.preview-docx .docx-wrapper { padding: 16px; background: transparent; }
+.preview-docx .docx-wrapper > section.docx { max-width: 100%; box-shadow: var(--shadow); }
 .grade-card { border-radius: 12px; padding: 16px; background: var(--green-bg); display: flex; flex-direction: column; gap: 10px; }
 .grade-score { display: flex; align-items: baseline; gap: 6px; }
 .grade-big { font-size: 2rem; font-weight: 700; color: var(--green-fg); line-height: 1; }

@@ -1,11 +1,15 @@
-import { Download, FileText, X } from 'lucide-react';
+import { useState } from 'react';
+import { Download, Eye, FileText, X } from 'lucide-react';
+import FilePreviewModal, { previewType } from './FilePreviewModal.jsx';
 import { downloadFile } from '../lib/api.js';
 import { formatSize } from '../lib/format.js';
 import { useToast } from '../toast.jsx';
 
-// Shows an attached file. Pass `submissionId` to allow downloading, `onRemove` to allow removing.
+// Shows an attached file. Pass `submissionId` to allow preview/download, `onRemove` to allow removing.
 export default function FileChip({ name, size, submissionId, onRemove }) {
   const toast = useToast();
+  const [previewing, setPreviewing] = useState(false);
+  const canPreview = submissionId && previewType(name);
 
   async function download() {
     try {
@@ -24,6 +28,11 @@ export default function FileChip({ name, size, submissionId, onRemove }) {
         <span className="truncate">{name}</span>
         {size != null && <span className="muted small">{formatSize(size)}</span>}
       </div>
+      {canPreview && (
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPreviewing(true)}>
+          <Eye size={15} /> Preview
+        </button>
+      )}
       {submissionId && (
         <button type="button" className="icon-btn" onClick={download} title="Download" aria-label={`Download ${name}`}>
           <Download size={17} />
@@ -34,6 +43,7 @@ export default function FileChip({ name, size, submissionId, onRemove }) {
           <X size={17} />
         </button>
       )}
+      {previewing && <FilePreviewModal submissionId={submissionId} name={name} onClose={() => setPreviewing(false)} />}
     </div>
   );
 }
