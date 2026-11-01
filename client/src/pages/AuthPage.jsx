@@ -43,7 +43,7 @@ export default function AuthPage({ mode }) {
         </div>
         <div className="auth-hero-body">
           <h1>Assignments, deadlines and grades. Sorted.</h1>
-          <p>A cloud-based assignment tracker for teachers and students.</p>
+          <p>A cloud-based assignment tracker for teachers and students, hosted on AWS.</p>
           <ul>
             {FEATURES.map(({ icon: Icon, text }) => (
               <li key={text}>
