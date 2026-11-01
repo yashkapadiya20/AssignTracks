@@ -12,6 +12,15 @@ const { createApp } = require('./app');
 
 const PORT = process.env.PORT || 4000;
 
+// In production, refuse to start with settings that would lose data or allow forged logins.
+if (process.env.NODE_ENV === 'production') {
+  const missing = ['DATABASE_URL', 'JWT_SECRET'].filter((key) => !process.env[key]);
+  if (missing.length) {
+    console.error(`Missing ${missing.join(' and ')} in server/.env. Refusing to start in production.`);
+    process.exit(1);
+  }
+}
+
 function describeDatabase(url) {
   try {
     const u = new URL(url);
@@ -48,7 +57,7 @@ createPool()
     } else if (/does not exist/i.test(err.message)) {
       console.error('Create the database first, e.g. in pgAdmin or with createdb.');
     } else if (/ECONNREFUSED/i.test(err.message)) {
-      console.error('PostgreSQL is not reachable. Check the port in DATABASE_URL (yours is 2509).');
+      console.error('PostgreSQL is not reachable. Is it running, and is the port in DATABASE_URL right?');
     }
     process.exit(1);
   });

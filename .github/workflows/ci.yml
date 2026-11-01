@@ -1,5 +1,4 @@
-# Continuous integration: test the API and build the React client.
-# AWS EC2 deployment is intentionally skipped; no cloud credentials are needed.
+# CI/CD: test the API, build the React client, then deploy main to EC2.
 name: CI
 
 on:
@@ -7,6 +6,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch: # lets you re-run a deploy by hand from the Actions tab
 
 jobs:
   server:
@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci
@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: client/package-lock.json
       - run: npm ci
@@ -44,3 +44,47 @@ jobs:
         with:
           name: client-dist
           path: client/dist
+
+  # Runs only for pushes to main (not pull requests), and only if both jobs above pass.
+  # Needs repository secrets: EC2_HOST, EC2_USER, EC2_SSH_KEY.
+  deploy:
+    name: Deploy to EC2
+    needs: [server, client]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-ec2
+      cancel-in-progress: false
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+    steps:
+      - name: Set up SSH key
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/ec2.pem
+          chmod 600 ~/.ssh/ec2.pem
+
+      - name: Pull latest code, build and restart
+        run: |
+          ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 "$EC2_USER@$EC2_HOST" 'bash -s' <<'SCRIPT'
+          set -e
+          cd ~/AssignTrack
+          # .env and uploads/ are git-ignored, so this never touches them.
+          git fetch origin main
+          git reset --hard origin/main
+          cd client && npm ci && npm run build
+          cd ../server && npm ci --omit=dev
+          # Production mode: the server refuses to start without DATABASE_URL and JWT_SECRET.
+          export NODE_ENV=production
+          pm2 restart assigntrack --update-env || pm2 start src/index.js --name assigntrack
+          pm2 save
+          # Fail the deploy if the app does not come back up.
+          for i in $(seq 1 15); do
+            curl -fsS http://localhost:4000/api/health && exit 0
+            sleep 2
+          done
+          echo "App did not respond after restart"; pm2 logs assigntrack --lines 30 --nostream; exit 1
+          SCRIPT

@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 
+// The fallback is only for local development; production requires JWT_SECRET (see index.js).
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 
 function signToken(user) {
